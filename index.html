@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smart Lock Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <!-- MQTT.js via CDN -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d1117;
+      --surf:    #161b22;
+      --surf2:   #1c2330;
+      --border:  rgba(255,255,255,0.08);
+      --accent:  #00e5a0;
+      --accent2: #0af;
+      --danger:  #ff4d6d;
+      --warn:    #ffd60a;
+      --text:    #e6edf3;
+      --muted:   #7d8590;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    /* ===== LAYOUT ===== */
+    .page {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 28px 16px 60px;
+    }
+
+    /* ===== HEADER ===== */
+    .header {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 32px;
+      animation: fadeUp .5s ease both;
+    }
+    .header-icon {
+      width: 42px; height: 42px;
+      background: linear-gradient(135deg, #00e5a0, #0af);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      animation: pulseGlow 3s ease-in-out infinite;
+    }
+    @keyframes pulseGlow {
+      0%,100% { box-shadow: 0 0 0 0 rgba(0,229,160,.4); }
+      50%      { box-shadow: 0 0 0 10px rgba(0,229,160,0); }
+    }
+    .header-text h1 {
+      font-size: 19px; font-weight: 600; letter-spacing: -.3px;
+    }
+    .header-text p {
+      font-size: 12px; color: var(--muted);
+      font-family: 'Space Mono', monospace;
+    }
+    .conn-badge {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; font-family: 'Space Mono', monospace;
+      padding: 5px 10px; border-radius: 20px;
+      border: .5px solid rgba(255,255,255,.1);
+      transition: all .4s ease;
+    }
+    .conn-badge::before {
+      content: '';
+      width: 7px; height: 7px; border-radius: 50%;
+      transition: background .4s ease;
+    }
+    .conn-badge.connecting { color: var(--warn); }
+    .conn-badge.connecting::before { background: var(--warn); animation: blink 1s ease-in-out infinite; }
+    .conn-badge.online  { color: var(--accent); }
+    .conn-badge.online::before  { background: var(--accent); animation: blink 2s ease-in-out infinite; }
+    .conn-badge.offline { color: var(--danger); }
+    .conn-badge.offline::before { background: var(--danger); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ===== CARDS ===== */
+    .card {
+      background: var(--surf);
+      border: .5px solid var(--border);
+      border-radius: 18px;
+      padding: 18px 20px;
+      animation: fadeUp .5s ease both;
+      margin-bottom: 12px;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .card-label {
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: 1.2px; color: var(--muted); margin-bottom: 12px;
+    }
+
+    /* ===== SENSOR GRID ===== */
+    .grid2 {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      margin-bottom: 12px;
+    }
+    .grid2 .card { margin-bottom: 0; }
+    .grid2 .card:nth-child(1) { animation-delay: .07s; }
+    .grid2 .card:nth-child(2) { animation-delay: .12s; }
+
+    .sensor-val  { font-family: 'Space Mono', monospace; font-size: 30px; font-weight: 700; line-height: 1; }
+    .sensor-unit { font-size: 13px; color: var(--muted); margin-left: 3px; }
+    .bar { margin-top: 12px; height: 3px; background: rgba(255,255,255,.06); border-radius: 2px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 2px; transition: width 1.2s ease; }
+    .bar-temp { background: linear-gradient(90deg,#00e5a0,#ffd60a); }
+    .bar-hum  { background: linear-gradient(90deg,#0af,#00e5a0); }
+
+    /* ===== LOCK CARD ===== */
+    .lock-card { animation-delay: .17s; text-align: center; }
+    .lock-ring {
+      width: 88px; height: 88px; margin: 10px auto 14px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+      transition: all .5s cubic-bezier(.34,1.56,.64,1);
+    }
+    .lock-ring.locked   { background: rgba(255,77,109,.12); border: 1.5px solid rgba(255,77,109,.35); }
+    .lock-ring.unlocked { background: rgba(0,229,160,.12);  border: 1.5px solid rgba(0,229,160,.35); }
+    .lock-ring::after {
+      content: ''; position: absolute; inset: -6px; border-radius: 50%;
+      animation: ringPulse 2.5s ease-in-out infinite;
+    }
+    .lock-ring.locked::after   { border: 1px solid rgba(255,77,109,.2); }
+    .lock-ring.unlocked::after { border: 1px solid rgba(0,229,160,.2); }
+    @keyframes ringPulse {
+      0%,100%{ transform: scale(1); opacity: 1; }
+      50%    { transform: scale(1.12); opacity: 0; }
+    }
+    .lock-state {
+      font-family: 'Space Mono', monospace; font-size: 15px;
+      font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase;
+      margin-bottom: 4px; transition: color .4s ease;
+    }
+    .lock-state.locked   { color: var(--danger); }
+    .lock-state.unlocked { color: var(--accent); }
+    .lock-sub { font-size: 12px; color: var(--muted); margin-bottom: 22px; min-height: 18px; }
+
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .btn {
+      padding: 12px 0; border-radius: 11px;
+      font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500;
+      cursor: pointer; border: none;
+      transition: all .2s ease; letter-spacing: .2px;
+    }
+    .btn:active { transform: scale(.96); }
+    .btn-unlock {
+      background: rgba(0,229,160,.12); color: var(--accent);
+      border: 1px solid rgba(0,229,160,.25);
+    }
+    .btn-unlock:hover { background: rgba(0,229,160,.2); border-color: rgba(0,229,160,.5); }
+    .btn-lock {
+      background: rgba(255,77,109,.1); color: var(--danger);
+      border: 1px solid rgba(255,77,109,.22);
+    }
+    .btn-lock:hover { background: rgba(255,77,109,.18); border-color: rgba(255,77,109,.4); }
+
+    /* ===== RFID CARD ===== */
+    .rfid-card { animation-delay: .22s; }
+    .rfid-header {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
+    }
+    .rfid-badge {
+      font-family: 'Space Mono', monospace; font-size: 10px;
+      padding: 3px 9px; border-radius: 20px;
+      background: rgba(0,170,255,.1); color: var(--accent2);
+      border: .5px solid rgba(0,170,255,.25); letter-spacing: .5px;
+    }
+    .rfid-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 9px 0; border-bottom: .5px solid var(--border); font-size: 13px;
+    }
+    .rfid-row:last-child { border-bottom: none; }
+    .rfid-key { color: var(--muted); }
+    .rfid-val { font-family: 'Space Mono', monospace; font-size: 12px; }
+    .pill {
+      font-family: 'Space Mono', monospace; font-size: 11px;
+      padding: 3px 10px; border-radius: 20px; letter-spacing: .3px;
+    }
+    .pill-ok      { background: rgba(0,229,160,.1);  color: var(--accent); border: .5px solid rgba(0,229,160,.3); }
+    .pill-bad     { background: rgba(255,77,109,.1); color: var(--danger); border: .5px solid rgba(255,77,109,.3); }
+    .pill-neutral { background: rgba(125,133,144,.1); color: var(--muted); border: .5px solid rgba(125,133,144,.2); }
+
+    /* ===== INFO CARD ===== */
+    .info-card { animation-delay: .27s; }
+    .info-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; border-bottom: .5px solid var(--border); font-size: 13px;
+    }
+    .info-row:last-child { border-bottom: none; }
+    .info-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .info-dot.ts   { background: var(--accent2); }
+    .info-dot.mqtt { background: var(--accent); }
+    .info-key { color: var(--muted); flex: 1; }
+    .info-val { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--text); }
+
+    /* ===== PASSWORD OVERLAY ===== */
+    .overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.75);
+      align-items: center; justify-content: center;
+      z-index: 200;
+    }
+    .overlay.show { display: flex; animation: fadeIn .22s ease; }
+    @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+
+    .modal {
+      background: var(--surf);
+      border: .5px solid rgba(255,255,255,.12);
+      border-radius: 22px; padding: 30px 24px;
+      width: min(340px, calc(100vw - 32px));
+      animation: scaleIn .3s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes scaleIn { from{transform:scale(.86)} to{transform:scale(1)} }
+    .modal-title {
+      font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 700;
+      letter-spacing: 2px; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 6px;
+    }
+    .modal-sub { font-size: 13px; color: var(--muted); margin-bottom: 22px; }
+
+    .pin-dots { display: flex; justify-content: center; gap: 16px; margin-bottom: 26px; }
+    .dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 1.5px solid rgba(255,255,255,.2);
+      background: transparent; transition: all .2s ease;
+    }
+    .dot.filled { background: var(--accent); border-color: var(--accent); }
+    .dot.error  { background: var(--danger); border-color: var(--danger); }
+
+    .pin-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 14px; }
+    .pin-key {
+      padding: 15px 0; border-radius: 13px;
+      font-family: 'Space Mono', monospace; font-size: 18px; font-weight: 700;
+      cursor: pointer; border: .5px solid var(--border);
+      background: var(--surf2); color: var(--text);
+      transition: all .15s ease; text-align: center; user-select: none;
+    }
+    .pin-key:hover  { background: rgba(255,255,255,.08); }
+    .pin-key:active { transform: scale(.92); }
+    .pin-key.fn     { font-size: 13px; color: var(--muted); }
+    .pin-key.cancel { font-size: 13px; color: var(--danger); }
+    .pin-key.zero   { grid-column: 2; }
+
+    .shake { animation: shake .4s ease; }
+    @keyframes shake {
+      0%,100%{ transform:translateX(0); }
+      20%    { transform:translateX(-9px); }
+      40%    { transform:translateX(9px); }
+      60%    { transform:translateX(-6px); }
+      80%    { transform:translateX(6px); }
+    }
+
+    /* ===== TOAST ===== */
+    .toast {
+      position: fixed; bottom: 28px; left: 50%;
+      transform: translateX(-50%) translateY(70px);
+      background: var(--surf2); border: .5px solid var(--border);
+      border-radius: 11px; padding: 11px 20px;
+      font-size: 13px; font-family: 'Space Mono', monospace;
+      opacity: 0; transition: all .35s cubic-bezier(.34,1.56,.64,1);
+      z-index: 300; white-space: nowrap; pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ===== FOOTER ===== */
+    .footer {
+      text-align: center; margin-top: 32px;
+      font-size: 11px; color: var(--muted);
+      font-family: 'Space Mono', monospace;
+      animation: fadeUp .5s .35s ease both;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+           stroke="#0d1117" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </div>
+    <div class="header-text">
+      <h1>Smart Lock</h1>
+      <p>Remote Dashboard</p>
+    </div>
+    <div class="conn-badge connecting" id="conn-badge">CONNECTING</div>
+  </div>
+
+  <!-- SENSOR CARDS -->
+  <div class="grid2">
+    <div class="card">
+      <div class="card-label">Temperature</div>
+      <div><span class="sensor-val" id="temp">--</span><span class="sensor-unit">°C</span></div>
+      <div class="bar"><div class="bar-fill bar-temp" id="temp-bar" style="width:0%"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Humidity</div>
+      <div><span class="sensor-val" id="hum">--</span><span class="sensor-unit">%</span></div>
+      <div class="bar"><div class="bar-fill bar-hum" id="hum-bar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- LOCK CARD -->
+  <div class="card lock-card">
+    <div class="card-label" style="text-align:left">Door Control</div>
+    <div class="lock-ring locked" id="lock-ring">
+      <svg id="lock-svg" width="38" height="38" viewBox="0 0 24 24" fill="none"
+           stroke="#ff4d6d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </div>
+    <div class="lock-state locked" id="lock-label">LOCKED</div>
+    <div class="lock-sub" id="lock-sub">Waiting for data…</div>
+    <div class="btn-row">
+      <button class="btn btn-unlock" onclick="askPassword()">Unlock</button>
+      <button class="btn btn-lock"   onclick="doLock()">Lock</button>
+    </div>
+  </div>
+
+  <!-- RFID CARD -->
+  <div class="card rfid-card">
+    <div class="rfid-header">
+      <div class="card-label" style="margin:0">RFID Scanner</div>
+      <span class="rfid-badge">RC522</span>
+    </div>
+    <div class="rfid-row">
+      <span class="rfid-key">Last UID</span>
+      <span class="rfid-val" id="uid">--</span>
+    </div>
+    <div class="rfid-row">
+      <span class="rfid-key">Status</span>
+      <span class="pill pill-neutral" id="status-pill">NO SCAN</span>
+    </div>
+    <div class="rfid-row">
+      <span class="rfid-key">Last updated</span>
+      <span class="rfid-val" id="last-seen">—</span>
+    </div>
+  </div>
+
+  <!-- CONNECTION INFO CARD -->
+  <div class="card info-card">
+    <div class="card-label">Connection Info</div>
+    <div class="info-row">
+      <div class="info-dot ts"></div>
+      <span class="info-key">ThingSpeak</span>
+      <span class="info-val" id="ts-status">polling…</span>
+    </div>
+    <div class="info-row">
+      <div class="info-dot mqtt"></div>
+      <span class="info-key">MQTT Broker</span>
+      <span class="info-val" id="mqtt-status">connecting…</span>
+    </div>
+    <div class="info-row">
+      <div class="info-dot" style="background:var(--muted)"></div>
+      <span class="info-key">Last TS fetch</span>
+      <span class="info-val" id="last-fetch">—</span>
+    </div>
+  </div>
+
+  <div class="footer">smart-lock &nbsp;·&nbsp; powered by thingspeak + hivemq</div>
+</div>
+
+<!-- PASSWORD OVERLAY -->
+<div class="overlay" id="overlay">
+  <div class="modal" id="modal">
+    <div class="modal-title">Enter PIN</div>
+    <div class="modal-sub">Enter your unlock password to continue.</div>
+    <div class="pin-dots" id="pin-dots">
+      <div class="dot" id="d0"></div>
+      <div class="dot" id="d1"></div>
+      <div class="dot" id="d2"></div>
+      <div class="dot" id="d3"></div>
+    </div>
+    <div class="pin-grid">
+      <div class="pin-key" onclick="pinPress('1')">1</div>
+      <div class="pin-key" onclick="pinPress('2')">2</div>
+      <div class="pin-key" onclick="pinPress('3')">3</div>
+      <div class="pin-key" onclick="pinPress('4')">4</div>
+      <div class="pin-key" onclick="pinPress('5')">5</div>
+      <div class="pin-key" onclick="pinPress('6')">6</div>
+      <div class="pin-key" onclick="pinPress('7')">7</div>
+      <div class="pin-key" onclick="pinPress('8')">8</div>
+      <div class="pin-key" onclick="pinPress('9')">9</div>
+      <div class="pin-key fn"     onclick="pinClear()">CLR</div>
+      <div class="pin-key zero"   onclick="pinPress('0')">0</div>
+      <div class="pin-key cancel" onclick="closeOverlay()">✕</div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ================================================================
+  //  CONFIG — fill these in with your actual values
+  // ================================================================
+  const CONFIG = {
+    // ThingSpeak
+    TS_CHANNEL_ID : "YOUR_CHANNEL_ID",       // e.g. "2345678"
+    TS_READ_KEY   : "YOUR_READ_API_KEY",      // from ThingSpeak → API Keys tab
+
+    // HiveMQ Cloud (WebSocket over TLS — port 8884)
+    MQTT_HOST     : "YOUR_CLUSTER.hivemq.cloud",
+    MQTT_PORT     : 8884,
+    MQTT_USER     : "webuser",               // browser credential you created
+    MQTT_PASS     : "webpassword",
+
+    // Topics — must match what your ESP32 uses
+    TOPIC_CMD     : "smartlock/command",
+    TOPIC_STATUS  : "smartlock/status",
+
+    // PIN (must match unlockPassword in your .ino)
+    UNLOCK_PIN    : "1234",
+
+    // How often to poll ThingSpeak (ms) — free tier min is 15000
+    TS_INTERVAL   : 15000,
+  };
+  // ================================================================
+
+  // ---------- MQTT ----------
+  let mqttClient = null;
+  let mqttReady  = false;
+
+  function initMQTT() {
+    const url = `wss://${CONFIG.MQTT_HOST}:${CONFIG.MQTT_PORT}/mqtt`;
+    mqttClient = mqtt.connect(url, {
+      username : CONFIG.MQTT_USER,
+      password : CONFIG.MQTT_PASS,
+      clientId : 'web_' + Math.random().toString(16).slice(2),
+      reconnectPeriod: 4000,
+    });
+
+    mqttClient.on('connect', () => {
+      mqttReady = true;
+      mqttClient.subscribe(CONFIG.TOPIC_STATUS);
+      setConnBadge('online');
+      document.getElementById('mqtt-status').textContent = 'connected';
+      showToast('MQTT connected', '#00e5a0');
+    });
+
+    mqttClient.on('reconnect', () => {
+      mqttReady = false;
+      setConnBadge('connecting');
+      document.getElementById('mqtt-status').textContent = 'reconnecting…';
+    });
+
+    mqttClient.on('offline', () => {
+      mqttReady = false;
+      setConnBadge('offline');
+      document.getElementById('mqtt-status').textContent = 'offline';
+    });
+
+    mqttClient.on('message', (topic, message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        setLockUI(data.locked, data.status);
+        updatePill(data.status);
+      } catch(e) {}
+    });
+  }
+
+  function setConnBadge(state) {
+    const b = document.getElementById('conn-badge');
+    b.className = 'conn-badge ' + state;
+    b.textContent = state.toUpperCase();
+  }
+
+  // ---------- ThingSpeak ----------
+  function fetchThingSpeak() {
+    const url = `https://api.thingspeak.com/channels/${CONFIG.TS_CHANNEL_ID}/feeds/last.json?api_key=${CONFIG.TS_READ_KEY}`;
+    fetch(url)
+      .then(r => r.json())
+      .then(d => {
+        const t = parseFloat(d.field1);
+        const h = parseFloat(d.field2);
+        const locked = d.field3 === "1";
+        const status = d.field4 || '';
+
+        if (!isNaN(t)) {
+          document.getElementById('temp').textContent = t.toFixed(1);
+          document.getElementById('temp-bar').style.width = Math.min(100,(t/50)*100).toFixed(1)+'%';
+        }
+        if (!isNaN(h)) {
+          document.getElementById('hum').textContent = Math.round(h);
+          document.getElementById('hum-bar').style.width = Math.min(100,h).toFixed(1)+'%';
+        }
+
+        setLockUI(locked, status);
+        updatePill(status);
+
+        const now = new Date();
+        const ts = now.toLocaleTimeString();
+        document.getElementById('last-seen').textContent = ts;
+        document.getElementById('last-fetch').textContent = ts;
+        document.getElementById('ts-status').textContent = 'ok · ch ' + CONFIG.TS_CHANNEL_ID;
+      })
+      .catch(() => {
+        document.getElementById('ts-status').textContent = 'fetch failed';
+      });
+  }
+
+  // ---------- Lock UI ----------
+  function setLockUI(locked, sub) {
+    const ring  = document.getElementById('lock-ring');
+    const label = document.getElementById('lock-label');
+    const svg   = document.getElementById('lock-svg');
+    const subEl = document.getElementById('lock-sub');
+
+    ring.className  = 'lock-ring '  + (locked ? 'locked' : 'unlocked');
+    label.className = 'lock-state ' + (locked ? 'locked' : 'unlocked');
+    label.textContent = locked ? 'LOCKED' : 'UNLOCKED';
+    if (sub) subEl.textContent = sub;
+    svg.setAttribute('stroke', locked ? '#ff4d6d' : '#00e5a0');
+    svg.innerHTML = locked
+      ? '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'
+      : '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 8.5-4.7"/>';
+  }
+
+  function updatePill(status) {
+    const p = document.getElementById('status-pill');
+    if (!status || status === 'No Scan Yet') {
+      p.textContent = 'NO SCAN'; p.className = 'pill pill-neutral'; return;
+    }
+    p.textContent = status.toUpperCase();
+    if (status.toLowerCase().includes('unlock') || status.toLowerCase().includes('access'))
+      p.className = 'pill pill-ok';
+    else if (status.toLowerCase().includes('lock') || status.toLowerCase().includes('denied'))
+      p.className = 'pill pill-bad';
+    else
+      p.className = 'pill pill-neutral';
+  }
+
+  // ---------- Lock / Unlock via MQTT ----------
+  function doLock() {
+    if (!mqttReady) { showToast('Not connected', '#ff4d6d'); return; }
+    mqttClient.publish(CONFIG.TOPIC_CMD, 'LOCK');
+    showToast('Lock command sent', '#ff4d6d');
+  }
+
+  // ---------- PIN ----------
+  let pin = '';
+  const MAX_PIN = CONFIG.UNLOCK_PIN.length;
+
+  function askPassword() {
+    pin = '';
+    updateDots();
+    document.getElementById('overlay').classList.add('show');
+  }
+  function closeOverlay() {
+    document.getElementById('overlay').classList.remove('show');
+    pin = ''; updateDots();
+  }
+  function pinPress(d) {
+    if (pin.length >= MAX_PIN) return;
+    pin += d; updateDots();
+    if (pin.length === MAX_PIN) setTimeout(submitPin, 180);
+  }
+  function pinClear() { pin = pin.slice(0,-1); updateDots(); }
+  function updateDots() {
+    for (let i = 0; i < MAX_PIN; i++) {
+      const el = document.getElementById('d'+i);
+      if (!el) continue;
+      el.classList.toggle('filled', i < pin.length);
+      el.classList.remove('error');
+    }
+  }
+  function submitPin() {
+    if (pin === CONFIG.UNLOCK_PIN) {
+      if (!mqttReady) {
+        showToast('MQTT not connected', '#ff4d6d');
+        pin = ''; updateDots(); return;
+      }
+      mqttClient.publish(CONFIG.TOPIC_CMD, 'UNLOCK');
+      closeOverlay();
+      showToast('Unlock command sent', '#00e5a0');
+    } else {
+      for (let i = 0; i < MAX_PIN; i++) {
+        const el = document.getElementById('d'+i);
+        if (el) el.classList.add('error');
+      }
+      document.getElementById('modal').classList.add('shake');
+      setTimeout(() => {
+        document.getElementById('modal').classList.remove('shake');
+        pin = ''; updateDots();
+      }, 500);
+      showToast('Wrong PIN', '#ff4d6d');
+    }
+  }
+
+  // ---------- Toast ----------
+  function showToast(msg, color) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.color = color || 'var(--text)';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2600);
+  }
+
+  // ---------- Init ----------
+  initMQTT();
+  fetchThingSpeak();
+  setInterval(fetchThingSpeak, CONFIG.TS_INTERVAL);
+</script>
+</body>
+</html>
