@@ -8,10 +8,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
 
   <!--
-    FIX 1: switched from unpkg.com to cdnjs — more reliable, no CSP issues on GitHub Pages
-    FIX 2: using the UMD build which exposes the global `mqtt` object correctly in browsers
+    Using mqtt.js 4.3.7 — more stable WebSocket support in browsers than 5.x
+    The 5.x UMD build has known issues with WSS on some CDN caches.
   -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.0/mqtt.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -419,8 +419,7 @@
     TS_READ_KEY   : "BTIE7A88AZHBQBLG",
 
     MQTT_HOST     : "4a5c7617d0b449afb71fdbe930eda17c.s1.eu.hivemq.cloud",
-    // ✅ FIX: browsers MUST use port 8884 (WebSocket Secure / WSS)
-    //         port 8883 is raw TCP/TLS — browsers cannot open raw TCP sockets
+    // FIX 1: HiveMQ Cloud WebSocket Secure port is 8884
     MQTT_PORT     : 8884,
     MQTT_USER     : "esp32user",
     MQTT_PASS     : "Diddyvyansh@07",
@@ -434,28 +433,48 @@
 
   // ================================================================
   //  MQTT
+  //  FIX 2: Use mqtt.js 4.3.7 (more stable browser WSS than 5.x)
+  //  FIX 3: Generate truly unique clientId using timestamp + random
+  //         to prevent HiveMQ from rejecting duplicate client sessions
+  //  FIX 4: Add keepalive and set clean:true so stale sessions are cleared
+  //  FIX 5: Increased connectTimeout for slow GitHub Pages → broker path
   // ================================================================
   let mqttClient = null;
   let mqttReady  = false;
+  let reconnectAttempts = 0;
 
   function initMQTT() {
-    // ✅ FIX: explicitly use wss:// and port 8884 — the WebSocket endpoint HiveMQ exposes for browsers
+    // WSS WebSocket path — must end with /mqtt for HiveMQ Cloud
     const url = `wss://${CONFIG.MQTT_HOST}:${CONFIG.MQTT_PORT}/mqtt`;
     console.log('[MQTT] Connecting to', url);
+
+    // FIX 3: timestamp + random suffix prevents duplicate clientId rejections
+    const clientId = 'web_' + Date.now() + '_' + Math.random().toString(16).slice(2, 8);
 
     mqttClient = mqtt.connect(url, {
       username        : CONFIG.MQTT_USER,
       password        : CONFIG.MQTT_PASS,
-      clientId        : 'web_' + Math.random().toString(16).slice(2),
+      clientId        : clientId,
+      // FIX 4: clean:true forces HiveMQ to drop any lingering old session
+      //         with the same clientId (protects against tab-refresh races)
+      clean           : true,
+      // FIX 5: longer timeout — GitHub Pages adds latency, 10s is too short
+      connectTimeout  : 20000,
+      // FIX 4: keepalive ping every 30s prevents HiveMQ idle disconnects
+      keepalive        : 30,
       reconnectPeriod : 5000,
-      connectTimeout  : 10000,
-      protocol        : 'wss',   // ✅ FIX: force WebSocket protocol explicitly
+      // FIX 6: explicitly declare the protocol as websockets
+      //         (mqtt.js 4.x sometimes defaults to tcp if omitted)
+      protocol        : 'wss',
+      // FIX 7: MQTT v3.1.1 — HiveMQ Cloud free tier works best on this
+      protocolVersion : 4,
     });
 
     mqttClient.on('connect', () => {
-      console.log('[MQTT] Connected ✓');
+      console.log('[MQTT] Connected ✓ clientId:', clientId);
       mqttReady = true;
-      mqttClient.subscribe(CONFIG.TOPIC_STATUS, (err) => {
+      reconnectAttempts = 0;
+      mqttClient.subscribe(CONFIG.TOPIC_STATUS, { qos: 1 }, (err) => {
         if (err) console.error('[MQTT] Subscribe error:', err);
         else     console.log('[MQTT] Subscribed to', CONFIG.TOPIC_STATUS);
       });
@@ -465,16 +484,23 @@
     });
 
     mqttClient.on('error', (err) => {
-      // This fires if the port/host/credentials are wrong
       console.error('[MQTT] Error:', err.message || err);
-      document.getElementById('mqtt-status').textContent = 'error – check console';
+      mqttReady = false;
+      setConnBadge('offline');
+      // Show a friendlier error — common cause is wrong credentials or CORS
+      const msg = (err.message || '').includes('Connack')
+        ? 'auth error – check credentials'
+        : 'connection error';
+      document.getElementById('mqtt-status').textContent = msg;
     });
 
     mqttClient.on('reconnect', () => {
-      console.log('[MQTT] Reconnecting…');
+      reconnectAttempts++;
+      console.log(`[MQTT] Reconnecting… attempt ${reconnectAttempts}`);
       mqttReady = false;
       setConnBadge('connecting');
-      document.getElementById('mqtt-status').textContent = 'reconnecting…';
+      document.getElementById('mqtt-status').textContent =
+        `reconnecting… (${reconnectAttempts})`;
     });
 
     mqttClient.on('offline', () => {
@@ -490,13 +516,22 @@
     });
 
     mqttClient.on('message', (topic, message) => {
-      console.log('[MQTT] Received on', topic, ':', message.toString());
+      const raw = message.toString();
+      console.log('[MQTT] Received on', topic, ':', raw);
       try {
-        const data = JSON.parse(message.toString());
-        setLockUI(data.locked, data.status);
-        updatePill(data.status);
+        const data = JSON.parse(raw);
+        // FIX 8: guard against partial/malformed payloads from ESP32
+        if (typeof data.locked !== 'undefined') {
+          setLockUI(data.locked, data.status || '');
+          updatePill(data.status || '');
+          document.getElementById('last-seen').textContent = new Date().toLocaleTimeString();
+        }
+        // Optional: if ESP32 ever sends uid in MQTT payload
+        if (data.uid) {
+          document.getElementById('uid').textContent = data.uid;
+        }
       } catch(e) {
-        console.warn('[MQTT] Could not parse message:', e);
+        console.warn('[MQTT] Could not parse message:', e, '| raw:', raw);
       }
     });
   }
@@ -584,7 +619,8 @@
   // ================================================================
   function doLock() {
     if (!mqttReady) { showToast('Not connected', '#ff4d6d'); return; }
-    mqttClient.publish(CONFIG.TOPIC_CMD, 'LOCK');
+    // FIX 9: publish with QoS 1 so HiveMQ confirms delivery to ESP32
+    mqttClient.publish(CONFIG.TOPIC_CMD, 'LOCK', { qos: 1 });
     showToast('Lock command sent', '#ff4d6d');
   }
 
@@ -622,7 +658,8 @@
         showToast('MQTT not connected', '#ff4d6d');
         pin = ''; updateDots(); return;
       }
-      mqttClient.publish(CONFIG.TOPIC_CMD, 'UNLOCK');
+      // FIX 9: QoS 1 for commands too
+      mqttClient.publish(CONFIG.TOPIC_CMD, 'UNLOCK', { qos: 1 });
       closeOverlay();
       showToast('Unlock command sent', '#00e5a0');
     } else {
