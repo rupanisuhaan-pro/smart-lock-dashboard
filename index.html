@@ -24,7 +24,6 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            
             <div class="lg:col-span-2 space-y-6">
                 <div class="grid grid-cols-3 gap-4">
                     <div class="glass p-4 rounded-2xl text-center border-t-4 border-blue-500">
@@ -74,10 +73,9 @@
                     <option value="AUTO">Automatic (Sensor Based)</option>
                     <option value="MANUAL">Manual Override</option>
                 </select>
-                
                 <div id="fan-manual-controls" class="hidden flex gap-3 transition-all">
-                    <button onclick="publish('smarthome/fan_state', 'ON')" class="flex-1 bg-emerald-600/80 hover:bg-emerald-500 p-3 rounded-xl font-bold">Turn ON</button>
-                    <button onclick="publish('smarthome/fan_state', 'OFF')" class="flex-1 bg-red-600/80 hover:bg-red-500 p-3 rounded-xl font-bold">Turn OFF</button>
+                    <button onclick="publish('smarthome/fan_power', 'ON')" class="flex-1 bg-emerald-600/80 hover:bg-emerald-500 p-3 rounded-xl font-bold">Turn ON</button>
+                    <button onclick="publish('smarthome/fan_power', 'OFF')" class="flex-1 bg-red-600/80 hover:bg-red-500 p-3 rounded-xl font-bold">Turn OFF</button>
                 </div>
             </div>
 
@@ -87,106 +85,66 @@
                     <option value="AUTO">Automatic (Sensor Based)</option>
                     <option value="MANUAL">Manual Override</option>
                 </select>
-                
                 <div id="led-manual-controls" class="hidden flex gap-3 transition-all">
-                    <button onclick="publish('smarthome/led_state', 'ON')" class="flex-1 bg-emerald-600/80 hover:bg-emerald-500 p-3 rounded-xl font-bold">Turn ON</button>
-                    <button onclick="publish('smarthome/led_state', 'OFF')" class="flex-1 bg-red-600/80 hover:bg-red-500 p-3 rounded-xl font-bold">Turn OFF</button>
+                    <button onclick="publish('smarthome/led_power', 'ON')" class="flex-1 bg-emerald-600/80 hover:bg-emerald-500 p-3 rounded-xl font-bold">Turn ON</button>
+                    <button onclick="publish('smarthome/led_power', 'OFF')" class="flex-1 bg-red-600/80 hover:bg-red-500 p-3 rounded-xl font-bold">Turn OFF</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        // --- CONFIGURATION ---
-        const PIN = "1234"; // Setup your security PIN here
+        const PIN = "1234"; 
         const client = mqtt.connect('wss://4a5c7617d0b449afb71fdbe930eda17c.s1.eu.hivemq.cloud:8884/mqtt', {
             username: 'esp32user', 
             password: 'Diddyvyansh@07'
         });
 
-        // --- MQTT CONNECTION ---
         client.on('connect', () => {
             const statusBadge = document.getElementById('status-text');
             statusBadge.innerText = "● System Online";
             statusBadge.classList.replace('text-slate-400', 'text-green-500');
-
             client.subscribe("smarthome/room_sensors");
             client.subscribe("smartlock/status");
         });
 
-        // --- INCOMING MESSAGES ---
         client.on('message', (topic, message) => {
             try {
                 const data = JSON.parse(message.toString());
-
-                // 1. Handle Sensor Readings (Now includes Humidity)
                 if (topic === "smarthome/room_sensors") {
                     if(data.temp !== undefined) document.getElementById('t-val').innerText = data.temp;
-                    if(data.humidity !== undefined) document.getElementById('h-val').innerText = data.humidity;
+                    if(data.hum !== undefined) document.getElementById('h-val').innerText = data.hum; // Fixed Key
                     if(data.light !== undefined) document.getElementById('l-val').innerText = data.light;
                 }
-                
-                // 2. Handle Lock Status Updates
                 if (topic === "smartlock/status") {
                     document.getElementById('lock-icon').innerText = data.locked ? "🔒" : "🔓";
-                    
-                    if (data.locked === false) {
-                        addLog(data.status);
-                    }
+                    if (data.locked === false) addLog(data.status);
                 }
-            } catch (e) {
-                console.error("Error parsing MQTT message:", e);
-            }
+            } catch (e) { console.error("MQTT Parse Error", e); }
         });
 
-        // --- ACTIONS ---
         function secureUnlock() {
             const userInput = prompt("Enter Security PIN:");
-            if (userInput === PIN) {
-                publish('smartlock/command', 'UNLOCK');
-            } else if (userInput !== null) {
-                alert("Access Denied: Incorrect PIN.");
-            }
+            if (userInput === PIN) publish('smartlock/command', 'UNLOCK');
         }
 
-        function publish(topic, msg) { 
-            client.publish(topic, msg); 
-        }
+        function publish(topic, msg) { client.publish(topic, msg); }
 
-        // --- MODE HANDLER (Shows/Hides Buttons) ---
         function changeMode(device, mode) {
-            // First, tell the ESP32 to switch modes
             publish(`smarthome/${device}_mode`, mode);
-            
-            // Second, show or hide the manual ON/OFF buttons
             const manualControls = document.getElementById(`${device}-manual-controls`);
-            if (mode === 'MANUAL') {
-                manualControls.classList.remove('hidden');
-            } else {
-                manualControls.classList.add('hidden');
-            }
+            mode === 'MANUAL' ? manualControls.classList.remove('hidden') : manualControls.classList.add('hidden');
         }
 
-        // --- UI UPDATES ---
         function addLog(source) {
             const container = document.getElementById('log-container');
             const noLogs = document.getElementById('no-logs');
             if (noLogs) noLogs.remove();
-
-            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const entry = document.createElement('div');
-            entry.className = "log-entry p-3 rounded-lg flex justify-between items-center animate-pulse";
-            entry.innerHTML = `
-                <div>
-                    <p class="text-xs text-indigo-400 font-bold uppercase">${source}</p>
-                    <p class="text-sm font-semibold text-white">Access Granted</p>
-                </div>
-                <div class="text-xs text-slate-500">${timeStr}</div>
-            `;
-
+            entry.className = "log-entry p-3 rounded-lg flex justify-between items-center";
+            entry.innerHTML = `<div><p class="text-xs text-indigo-400 font-bold uppercase">${source}</p><p class="text-sm">Access Granted</p></div><div class="text-xs text-slate-500">${timeStr}</div>`;
             container.prepend(entry);
-            setTimeout(() => entry.classList.remove('animate-pulse'), 2000);
         }
     </script>
 </body>
