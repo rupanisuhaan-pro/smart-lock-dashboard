@@ -26,13 +26,17 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             
             <div class="lg:col-span-2 space-y-6">
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-3 gap-4">
                     <div class="glass p-4 rounded-2xl text-center border-t-4 border-blue-500">
-                        <p class="text-xs text-slate-400 uppercase font-bold">Live Temp</p>
+                        <p class="text-xs text-slate-400 uppercase font-bold">Temp</p>
                         <p class="text-3xl font-bold mt-2"><span id="t-val">--</span>°C</p>
                     </div>
+                    <div class="glass p-4 rounded-2xl text-center border-t-4 border-cyan-400">
+                        <p class="text-xs text-slate-400 uppercase font-bold">Humidity</p>
+                        <p class="text-3xl font-bold mt-2"><span id="h-val">--</span>%</p>
+                    </div>
                     <div class="glass p-4 rounded-2xl text-center border-t-4 border-emerald-500">
-                        <p class="text-xs text-slate-400 uppercase font-bold">Live Light</p>
+                        <p class="text-xs text-slate-400 uppercase font-bold">Light</p>
                         <p class="text-3xl font-bold mt-2"><span id="l-val">--</span></p>
                     </div>
                 </div>
@@ -65,19 +69,29 @@
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div class="glass p-6 rounded-2xl">
-                <h2 class="text-xl font-bold mb-4">🌀 Fan Mode</h2>
-                <select onchange="publish('smarthome/fan_mode', this.value)" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl outline-none focus:border-indigo-500">
+                <h2 class="text-xl font-bold mb-4">🌀 Fan Control</h2>
+                <select onchange="changeMode('fan', this.value)" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl outline-none focus:border-indigo-500 mb-4">
                     <option value="AUTO">Automatic (Sensor Based)</option>
                     <option value="MANUAL">Manual Override</option>
                 </select>
+                
+                <div id="fan-manual-controls" class="hidden flex gap-3 transition-all">
+                    <button onclick="publish('smarthome/fan_state', 'ON')" class="flex-1 bg-emerald-600/80 hover:bg-emerald-500 p-3 rounded-xl font-bold">Turn ON</button>
+                    <button onclick="publish('smarthome/fan_state', 'OFF')" class="flex-1 bg-red-600/80 hover:bg-red-500 p-3 rounded-xl font-bold">Turn OFF</button>
+                </div>
             </div>
 
             <div class="glass p-6 rounded-2xl">
-                <h2 class="text-xl font-bold mb-4">💡 LED Mode</h2>
-                <select onchange="publish('smarthome/led_mode', this.value)" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl outline-none focus:border-indigo-500">
+                <h2 class="text-xl font-bold mb-4">💡 LED Control</h2>
+                <select onchange="changeMode('led', this.value)" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl outline-none focus:border-indigo-500 mb-4">
                     <option value="AUTO">Automatic (Sensor Based)</option>
                     <option value="MANUAL">Manual Override</option>
                 </select>
+                
+                <div id="led-manual-controls" class="hidden flex gap-3 transition-all">
+                    <button onclick="publish('smarthome/led_state', 'ON')" class="flex-1 bg-emerald-600/80 hover:bg-emerald-500 p-3 rounded-xl font-bold">Turn ON</button>
+                    <button onclick="publish('smarthome/led_state', 'OFF')" class="flex-1 bg-red-600/80 hover:bg-red-500 p-3 rounded-xl font-bold">Turn OFF</button>
+                </div>
             </div>
         </div>
     </div>
@@ -105,9 +119,10 @@
             try {
                 const data = JSON.parse(message.toString());
 
-                // 1. Handle Sensor Readings
+                // 1. Handle Sensor Readings (Now includes Humidity)
                 if (topic === "smarthome/room_sensors") {
                     if(data.temp !== undefined) document.getElementById('t-val').innerText = data.temp;
+                    if(data.humidity !== undefined) document.getElementById('h-val').innerText = data.humidity;
                     if(data.light !== undefined) document.getElementById('l-val').innerText = data.light;
                 }
                 
@@ -115,7 +130,6 @@
                 if (topic === "smartlock/status") {
                     document.getElementById('lock-icon').innerText = data.locked ? "🔒" : "🔓";
                     
-                    // Log the event if the door was unlocked
                     if (data.locked === false) {
                         addLog(data.status);
                     }
@@ -137,6 +151,20 @@
 
         function publish(topic, msg) { 
             client.publish(topic, msg); 
+        }
+
+        // --- MODE HANDLER (Shows/Hides Buttons) ---
+        function changeMode(device, mode) {
+            // First, tell the ESP32 to switch modes
+            publish(`smarthome/${device}_mode`, mode);
+            
+            // Second, show or hide the manual ON/OFF buttons
+            const manualControls = document.getElementById(`${device}-manual-controls`);
+            if (mode === 'MANUAL') {
+                manualControls.classList.remove('hidden');
+            } else {
+                manualControls.classList.add('hidden');
+            }
         }
 
         // --- UI UPDATES ---
