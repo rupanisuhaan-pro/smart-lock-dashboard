@@ -7,134 +7,115 @@
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background: #0f172a; color: white; font-family: 'Inter', sans-serif; }
+        body { background: #0f172a; color: white; font-family: sans-serif; }
         .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
-        .hidden { display: none; }
-        .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
-        iframe { border-radius: 12px; filter: invert(90%) hue-rotate(180deg) brightness(1.1); } /* Dark mode hack for ThingSpeak */
+        .log-entry { border-left: 4px solid #6366f1; background: rgba(255,255,255,0.05); }
+        iframe { border-radius: 12px; filter: invert(90%) hue-rotate(180deg) brightness(1.1); }
     </style>
 </head>
 <body class="p-4 md:p-8">
     <div class="max-w-6xl mx-auto">
         <div class="flex justify-between items-center mb-8 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-            <div>
-                <h1 class="text-2xl font-bold text-blue-500">SmartHome OS</h1>
-                <p class="text-xs text-slate-400 uppercase tracking-widest">Live Control Center</p>
-            </div>
-            <div id="status-container" class="flex items-center bg-slate-800 px-4 py-2 rounded-full border border-slate-700">
-                <span id="status-dot" class="status-dot bg-red-500"></span>
-                <span id="status-text" class="text-xs font-mono font-bold">DISCONNECTED</span>
+            <h1 class="text-2xl font-bold text-blue-500">SmartHome OS</h1>
+            <div class="flex items-center bg-slate-800 px-4 py-2 rounded-full border border-slate-700">
+                <span id="status-text" class="text-xs font-mono font-bold text-green-500 text-uppercase">System Online</span>
             </div>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-            <div class="glass p-4 rounded-2xl">
-                <p class="text-slate-400 text-xs font-bold uppercase">Temperature</p>
-                <p class="text-3xl font-black text-blue-400"><span id="temp-val">--</span>°C</p>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            
+            <div class="lg:col-span-2 space-y-6">
+                <div class="glass p-2 rounded-2xl">
+                    <iframe width="100%" height="200" src="https://thingspeak.com/channels/3347171/charts/1?bgcolor=%23ffffff&color=%233b82f6&dynamic=true"></iframe>
+                </div>
+                <div class="glass p-2 rounded-2xl">
+                    <iframe width="100%" height="200" src="https://thingspeak.com/channels/3347171/charts/2?bgcolor=%23ffffff&color=%2310b981&dynamic=true"></iframe>
+                </div>
             </div>
-            <div class="glass p-4 rounded-2xl">
-                <p class="text-slate-400 text-xs font-bold uppercase">Humidity</p>
-                <p class="text-3xl font-black text-emerald-400"><span id="hum-val">--</span>%</p>
-            </div>
-            <div class="glass p-4 rounded-2xl col-span-2 md:col-span-1">
-                <p class="text-slate-400 text-xs font-bold uppercase">Light Intensity</p>
-                <p class="text-3xl font-black text-yellow-400"><span id="light-val">--</span></p>
-            </div>
-        </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div class="glass p-2 rounded-2xl">
-                <h3 class="text-center text-xs font-bold py-2 text-slate-400">TEMPERATURE ANALYTICS (24H)</h3>
-                <iframe width="100%" height="260" src="https://thingspeak.com/channels/3347171/charts/1?bgcolor=%23ffffff&color=%233b82f6&dynamic=true&results=60&type=line&update=15"></iframe>
-            </div>
-            <div class="glass p-2 rounded-2xl">
-                <h3 class="text-center text-xs font-bold py-2 text-slate-400">HUMIDITY ANALYTICS (24H)</h3>
-                <iframe width="100%" height="260" src="https://thingspeak.com/channels/3347171/charts/2?bgcolor=%23ffffff&color=%2310b981&dynamic=true&results=60&type=line&update=15"></iframe>
+            <div class="glass p-6 rounded-2xl flex flex-col h-full border-t-4 border-indigo-500">
+                <h2 class="text-xl font-bold mb-4 flex items-center">🕒 Security Logs</h2>
+                <div id="log-container" class="flex-1 overflow-y-auto space-y-3 max-h-[420px] pr-2">
+                    <p id="no-logs" class="text-slate-500 text-sm italic text-center">Waiting for activity...</p>
+                </div>
             </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div class="glass p-6 rounded-2xl border-t-4 border-blue-500">
-                <h2 class="text-xl font-bold mb-4 flex items-center">🌀 Fan System</h2>
-                <select id="fanMode" onchange="updateMode('fan', this.value)" class="w-full bg-slate-900 border border-slate-700 p-2 rounded-lg mb-4">
-                    <option value="AUTO">Automatic (Sensor)</option>
-                    <option value="MANUAL">Manual Override</option>
+            <div class="glass p-6 rounded-2xl">
+                <h2 class="text-xl font-bold mb-4">🌀 Fan</h2>
+                <select onchange="publish('smarthome/fan_mode', this.value)" class="w-full bg-slate-900 p-2 rounded mb-4">
+                    <option value="AUTO">AUTO</option>
+                    <option value="MANUAL">MANUAL</option>
                 </select>
-                <div id="fan-ctrl" class="hidden flex gap-2">
-                    <button onclick="publish('smarthome/fan_power', 'ON')" class="flex-1 bg-blue-600 hover:bg-blue-500 p-3 rounded-xl font-bold transition">ON</button>
-                    <button onclick="publish('smarthome/fan_power', 'OFF')" class="flex-1 bg-slate-700 hover:bg-red-600 p-3 rounded-xl font-bold transition">OFF</button>
-                </div>
             </div>
 
-            <div class="glass p-6 rounded-2xl border-t-4 border-yellow-500">
-                <h2 class="text-xl font-bold mb-4 flex items-center">💡 Smart Lighting</h2>
-                <select id="ledMode" onchange="updateMode('led', this.value)" class="w-full bg-slate-900 border border-slate-700 p-2 rounded-lg mb-4">
-                    <option value="AUTO">Automatic (LDR)</option>
-                    <option value="MANUAL">Manual Override</option>
+            <div class="glass p-6 rounded-2xl">
+                <h2 class="text-xl font-bold mb-4">💡 Light</h2>
+                <select onchange="publish('smarthome/led_mode', this.value)" class="w-full bg-slate-900 p-2 rounded mb-4">
+                    <option value="AUTO">AUTO</option>
+                    <option value="MANUAL">MANUAL</option>
                 </select>
-                <div id="led-ctrl" class="hidden flex gap-2">
-                    <button onclick="publish('smarthome/led_power', 'ON')" class="flex-1 bg-yellow-600 hover:bg-yellow-500 p-3 rounded-xl font-bold transition">ON</button>
-                    <button onclick="publish('smarthome/led_power', 'OFF')" class="flex-1 bg-slate-700 hover:bg-red-600 p-3 rounded-xl font-bold transition">OFF</button>
-                </div>
             </div>
 
-            <div class="glass p-6 rounded-2xl border-t-4 border-indigo-500">
-                <h2 class="text-xl font-bold mb-4">🔒 Security</h2>
-                <div id="lock-icon" class="text-center text-5xl mb-4 py-2">🔒</div>
-                <button onclick="publish('smartlock/command', 'UNLOCK')" class="w-full bg-indigo-600 hover:bg-indigo-500 p-4 rounded-2xl font-bold text-lg shadow-lg shadow-indigo-900/20">
-                    UNLOCK DOOR
-                </button>
+            <div class="glass p-6 rounded-2xl">
+                <h2 class="text-xl font-bold mb-4">🔒 Lock</h2>
+                <div id="lock-icon" class="text-center text-4xl mb-4">🔒</div>
+                <button onclick="publish('smartlock/command', 'UNLOCK')" class="w-full bg-indigo-600 p-3 rounded-xl font-bold hover:bg-indigo-500">UNLOCK</button>
             </div>
         </div>
     </div>
 
     <script>
-        // --- MQTT CONFIGURATION ---
-        const options = {
-            username: 'esp32user',
-            password: 'Diddyvyansh@07',
-            clientId: 'WebDashboard_' + Math.random().toString(16).substr(2, 8)
-        };
-
-        const client = mqtt.connect('wss://4a5c7617d0b449afb71fdbe930eda17c.s1.eu.hivemq.cloud:8884/mqtt', options);
+        const client = mqtt.connect('wss://4a5c7617d0b449afb71fdbe930eda17c.s1.eu.hivemq.cloud:8884/mqtt', {
+            username: 'esp32user', password: 'Diddyvyansh@07'
+        });
 
         client.on('connect', () => {
-            console.log("Connected to HiveMQ");
-            document.getElementById('status-dot').className = "status-dot bg-green-500";
-            document.getElementById('status-text').innerText = "SYSTEM ONLINE";
             client.subscribe("smarthome/room_sensors");
             client.subscribe("smartlock/status");
         });
 
         client.on('message', (topic, message) => {
-            const msg = message.toString();
-            const data = JSON.parse(msg);
-
-            if (topic === "smarthome/room_sensors") {
-                if (data.temp) document.getElementById('temp-val').innerText = data.temp.toFixed(1);
-                if (data.hum) document.getElementById('hum-val').innerText = data.hum.toFixed(1);
-                if (data.light !== undefined) document.getElementById('light-val').innerText = data.light;
-            }
+            const data = JSON.parse(message.toString());
 
             if (topic === "smartlock/status") {
+                // 1. Update Lock Icon
                 document.getElementById('lock-icon').innerText = data.locked ? "🔒" : "🔓";
+                
+                // 2. Add to RFID Logs if it's an "Unlock" event
+                if (data.locked === false) {
+                    addLog(data.status);
+                }
             }
         });
 
-        function updateMode(device, mode) {
-            document.getElementById(`${device}-ctrl`).classList.toggle('hidden', mode === 'AUTO');
-            client.publish(`smarthome/${device}_mode`, mode);
+        function addLog(source) {
+            const container = document.getElementById('log-container');
+            const noLogs = document.getElementById('no-logs');
+            if (noLogs) noLogs.remove();
+
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            const entry = document.createElement('div');
+            entry.className = "log-entry p-3 rounded-lg flex justify-between items-center animate-pulse";
+            entry.innerHTML = `
+                <div>
+                    <p class="text-xs text-indigo-400 font-bold uppercase">${source}</p>
+                    <p class="text-sm font-semibold text-white">Access Granted</p>
+                </div>
+                <div class="text-xs text-slate-500">${timeStr}</div>
+            `;
+
+            // Add new log to the top
+            container.prepend(entry);
+            
+            // Remove pulse after 2 seconds
+            setTimeout(() => entry.classList.remove('animate-pulse'), 2000);
         }
 
-        function publish(topic, msg) {
-            client.publish(topic, msg);
-            console.log(`Sent: ${msg} to ${topic}`);
-        }
-
-        client.on('error', (err) => {
-            console.error('Connection error: ', err);
-            document.getElementById('status-text').innerText = "CONNECTION ERROR";
-        });
+        function publish(topic, msg) { client.publish(topic, msg); }
     </script>
 </body>
 </html>
