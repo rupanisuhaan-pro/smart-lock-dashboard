@@ -2,88 +2,163 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>SmartHome Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartHome OS | Ultimate Dashboard</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background: #0f172a; color: white; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
-        iframe { filter: invert(90%) hue-rotate(180deg); border-radius: 8px; }
+        body { background: #0f172a; color: white; font-family: sans-serif; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
+        .log-entry { border-left: 4px solid #6366f1; background: rgba(255,255,255,0.05); }
+        iframe { border-radius: 12px; filter: invert(90%) hue-rotate(180deg) brightness(1.1); }
     </style>
 </head>
-<body class="p-6">
+<body class="p-4 md:p-8">
     <div class="max-w-6xl mx-auto">
-        <header class="flex justify-between items-center mb-8 bg-slate-900 p-4 rounded-xl">
-            <h1 class="text-xl font-bold text-blue-400">SMARTHOME OS</h1>
-            <div id="status" class="text-xs text-green-500 font-mono">● SYSTEM ONLINE</div>
-        </header>
+        
+        <div class="flex justify-between items-center mb-8 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+            <h1 class="text-2xl font-bold text-blue-500">SmartHome OS</h1>
+            <div class="flex items-center bg-slate-800 px-4 py-2 rounded-full border border-slate-700">
+                <span id="status-text" class="text-xs font-mono font-bold text-slate-400 uppercase">Connecting...</span>
+            </div>
+        </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            
             <div class="lg:col-span-2 space-y-6">
                 <div class="grid grid-cols-2 gap-4">
-                    <div class="glass p-4 rounded-xl text-center">
-                        <p class="text-xs text-slate-400 uppercase">Temp</p>
-                        <p class="text-2xl font-bold"><span id="t-val">--</span>°C</p>
+                    <div class="glass p-4 rounded-2xl text-center border-t-4 border-blue-500">
+                        <p class="text-xs text-slate-400 uppercase font-bold">Live Temp</p>
+                        <p class="text-3xl font-bold mt-2"><span id="t-val">--</span>°C</p>
                     </div>
-                    <div class="glass p-4 rounded-xl text-center">
-                        <p class="text-xs text-slate-400 uppercase">Light</p>
-                        <p class="text-2xl font-bold"><span id="l-val">--</span></p>
+                    <div class="glass p-4 rounded-2xl text-center border-t-4 border-emerald-500">
+                        <p class="text-xs text-slate-400 uppercase font-bold">Live Light</p>
+                        <p class="text-3xl font-bold mt-2"><span id="l-val">--</span></p>
                     </div>
                 </div>
-                <div class="glass p-2 rounded-xl">
-                    <iframe width="100%" height="200" src="https://thingspeak.com/channels/3347171/charts/1?dynamic=true"></iframe>
+
+                <div class="glass p-2 rounded-2xl">
+                    <iframe width="100%" height="200" src="https://thingspeak.com/channels/3347171/charts/1?bgcolor=%23ffffff&color=%233b82f6&dynamic=true"></iframe>
                 </div>
-                <div class="glass p-2 rounded-xl">
-                    <iframe width="100%" height="200" src="https://thingspeak.com/channels/3347171/charts/2?dynamic=true"></iframe>
+                <div class="glass p-2 rounded-2xl">
+                    <iframe width="100%" height="200" src="https://thingspeak.com/channels/3347171/charts/2?bgcolor=%23ffffff&color=%2310b981&dynamic=true"></iframe>
                 </div>
             </div>
 
             <div class="space-y-6">
-                <div class="glass p-6 rounded-xl border-t-4 border-indigo-500">
-                    <div id="lock-icon" class="text-4xl text-center mb-4">🔒</div>
-                    <button onclick="secureUnlock()" class="w-full bg-indigo-600 p-3 rounded-lg font-bold">UNLOCK DOOR</button>
+                <div class="glass p-6 rounded-2xl border-t-4 border-indigo-500 text-center">
+                    <h2 class="text-xl font-bold mb-2">Security Lock</h2>
+                    <div id="lock-icon" class="text-5xl mb-6 mt-4 drop-shadow-lg">🔒</div>
+                    <button onclick="secureUnlock()" class="w-full bg-indigo-600 p-3 rounded-xl font-bold hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-500/30">
+                        SECURE UNLOCK
+                    </button>
                 </div>
-                <div class="glass p-4 rounded-xl h-64 overflow-y-auto">
-                    <h3 class="text-xs font-bold mb-3 text-slate-400">SECURITY ACTIVITY</h3>
-                    <div id="logs" class="space-y-2 text-xs"></div>
+
+                <div class="glass p-6 rounded-2xl flex flex-col h-[350px]">
+                    <h2 class="text-xl font-bold mb-4 flex items-center">🕒 Activity Logs</h2>
+                    <div id="log-container" class="flex-1 overflow-y-auto space-y-3 pr-2">
+                        <p id="no-logs" class="text-slate-500 text-sm italic text-center mt-4">Waiting for activity...</p>
+                    </div>
                 </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="glass p-6 rounded-2xl">
+                <h2 class="text-xl font-bold mb-4">🌀 Fan Mode</h2>
+                <select onchange="publish('smarthome/fan_mode', this.value)" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl outline-none focus:border-indigo-500">
+                    <option value="AUTO">Automatic (Sensor Based)</option>
+                    <option value="MANUAL">Manual Override</option>
+                </select>
+            </div>
+
+            <div class="glass p-6 rounded-2xl">
+                <h2 class="text-xl font-bold mb-4">💡 LED Mode</h2>
+                <select onchange="publish('smarthome/led_mode', this.value)" class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl outline-none focus:border-indigo-500">
+                    <option value="AUTO">Automatic (Sensor Based)</option>
+                    <option value="MANUAL">Manual Override</option>
+                </select>
             </div>
         </div>
     </div>
 
     <script>
-        const PIN = "1234"; // SET YOUR PIN HERE
+        // --- CONFIGURATION ---
+        const PIN = "1234"; // Setup your security PIN here
         const client = mqtt.connect('wss://4a5c7617d0b449afb71fdbe930eda17c.s1.eu.hivemq.cloud:8884/mqtt', {
-            username: 'esp32user', password: 'Diddyvyansh@07'
+            username: 'esp32user', 
+            password: 'Diddyvyansh@07'
         });
 
+        // --- MQTT CONNECTION ---
         client.on('connect', () => {
+            const statusBadge = document.getElementById('status-text');
+            statusBadge.innerText = "● System Online";
+            statusBadge.classList.replace('text-slate-400', 'text-green-500');
+
             client.subscribe("smarthome/room_sensors");
             client.subscribe("smartlock/status");
         });
 
+        // --- INCOMING MESSAGES ---
         client.on('message', (topic, message) => {
-            const data = JSON.parse(message.toString());
-            if (topic === "smarthome/room_sensors") {
-                document.getElementById('t-val').innerText = data.temp;
-                document.getElementById('l-val').innerText = data.light;
-            }
-            if (topic === "smartlock/status") {
-                document.getElementById('lock-icon').innerText = data.locked ? "🔒" : "🔓";
-                if(!data.locked) addLog(data.status);
+            try {
+                const data = JSON.parse(message.toString());
+
+                // 1. Handle Sensor Readings
+                if (topic === "smarthome/room_sensors") {
+                    if(data.temp !== undefined) document.getElementById('t-val').innerText = data.temp;
+                    if(data.light !== undefined) document.getElementById('l-val').innerText = data.light;
+                }
+                
+                // 2. Handle Lock Status Updates
+                if (topic === "smartlock/status") {
+                    document.getElementById('lock-icon').innerText = data.locked ? "🔒" : "🔓";
+                    
+                    // Log the event if the door was unlocked
+                    if (data.locked === false) {
+                        addLog(data.status);
+                    }
+                }
+            } catch (e) {
+                console.error("Error parsing MQTT message:", e);
             }
         });
 
+        // --- ACTIONS ---
         function secureUnlock() {
-            if (prompt("Enter Security PIN:") === PIN) client.publish('smartlock/command', 'UNLOCK');
-            else alert("Wrong PIN!");
+            const userInput = prompt("Enter Security PIN:");
+            if (userInput === PIN) {
+                publish('smartlock/command', 'UNLOCK');
+            } else if (userInput !== null) {
+                alert("Access Denied: Incorrect PIN.");
+            }
         }
 
+        function publish(topic, msg) { 
+            client.publish(topic, msg); 
+        }
+
+        // --- UI UPDATES ---
         function addLog(source) {
-            const row = document.createElement('div');
-            row.className = "bg-slate-800 p-2 rounded flex justify-between";
-            row.innerHTML = `<span>${source}</span><span class="text-slate-500">${new Date().toLocaleTimeString()}</span>`;
-            document.getElementById('logs').prepend(row);
+            const container = document.getElementById('log-container');
+            const noLogs = document.getElementById('no-logs');
+            if (noLogs) noLogs.remove();
+
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            const entry = document.createElement('div');
+            entry.className = "log-entry p-3 rounded-lg flex justify-between items-center animate-pulse";
+            entry.innerHTML = `
+                <div>
+                    <p class="text-xs text-indigo-400 font-bold uppercase">${source}</p>
+                    <p class="text-sm font-semibold text-white">Access Granted</p>
+                </div>
+                <div class="text-xs text-slate-500">${timeStr}</div>
+            `;
+
+            container.prepend(entry);
+            setTimeout(() => entry.classList.remove('animate-pulse'), 2000);
         }
     </script>
 </body>
