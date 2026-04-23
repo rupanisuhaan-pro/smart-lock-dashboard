@@ -10,13 +10,29 @@
         body { background: #0f172a; color: white; font-family: sans-serif; }
         .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); }
         .hidden { display: none; }
+        .val-text { font-size: 2.5rem; font-weight: 800; color: #3b82f6; }
     </style>
 </head>
 <body class="p-6">
-    <div class="max-w-5xl mx-auto">
+    <div class="max-w-6xl mx-auto">
         <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold text-blue-500">SmartHome OS</h1>
             <div id="status" class="text-xs font-mono bg-slate-800 px-3 py-1 rounded">CONNECTING...</div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="glass p-6 rounded-2xl text-center">
+                <p class="text-slate-400 text-sm uppercase">Temperature</p>
+                <p class="val-text"><span id="temp-val">--</span><span class="text-xl">°C</span></p>
+            </div>
+            <div class="glass p-6 rounded-2xl text-center">
+                <p class="text-slate-400 text-sm uppercase">Humidity</p>
+                <p class="val-text"><span id="hum-val">--</span><span class="text-xl">%</span></p>
+            </div>
+            <div class="glass p-6 rounded-2xl text-center">
+                <p class="text-slate-400 text-sm uppercase">Light Level</p>
+                <p class="val-text"><span id="light-val">--</span></p>
+            </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -27,8 +43,8 @@
                     <option value="MANUAL">Manual Override</option>
                 </select>
                 <div id="fan-manual" class="hidden flex gap-2">
-                    <button onclick="sendPower('fan', 'ON')" class="flex-1 bg-blue-600 p-2 rounded font-bold">ON</button>
-                    <button onclick="sendPower('fan', 'OFF')" class="flex-1 bg-red-600 p-2 rounded font-bold">OFF</button>
+                    <button onclick="sendPower('fan', 'ON')" class="flex-1 bg-blue-600 p-2 rounded font-bold py-2">ON</button>
+                    <button onclick="sendPower('fan', 'OFF')" class="flex-1 bg-red-600 p-2 rounded font-bold py-2">OFF</button>
                 </div>
             </div>
 
@@ -39,8 +55,8 @@
                     <option value="MANUAL">Manual Override</option>
                 </select>
                 <div id="led-manual" class="hidden flex gap-2">
-                    <button onclick="sendPower('led', 'ON')" class="flex-1 bg-yellow-600 p-2 rounded font-bold">ON</button>
-                    <button onclick="sendPower('led', 'OFF')" class="flex-1 bg-red-600 p-2 rounded font-bold">OFF</button>
+                    <button onclick="sendPower('led', 'ON')" class="flex-1 bg-yellow-600 p-2 rounded font-bold py-2">ON</button>
+                    <button onclick="sendPower('led', 'OFF')" class="flex-1 bg-red-600 p-2 rounded font-bold py-2">OFF</button>
                 </div>
             </div>
 
@@ -76,6 +92,15 @@
 
         client.on('message', (topic, msg) => {
             const data = JSON.parse(msg.toString());
+            
+            // 1. Update Sensor UI
+            if (topic === 'smarthome/room_sensors') {
+                if(data.temp) document.getElementById('temp-val').innerText = data.temp.toFixed(1);
+                if(data.hum) document.getElementById('hum-val').innerText = data.hum.toFixed(0);
+                if(data.light !== undefined) document.getElementById('light-val').innerText = data.light;
+            }
+
+            // 2. Update Lock UI
             if (topic === 'smartlock/status') {
                 document.getElementById('lock-state').innerText = data.locked ? "🔒" : "🔓";
             }
