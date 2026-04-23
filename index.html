@@ -3,164 +3,82 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Distributed Smart Home Dashboard</title>
+    <title>SmartHome Pro Dashboard</title>
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background: #0f172a; color: white; font-family: 'Inter', sans-serif; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
-        .status-online { color: #10b981; }
-        .status-offline { color: #ef4444; }
+        body { background: #0f172a; color: white; font-family: sans-serif; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); }
+        .hidden { display: none; }
     </style>
 </head>
-<body class="p-4 md:p-8">
-
-    <div class="max-w-4xl mx-auto">
+<body class="p-6">
+    <div class="max-w-5xl mx-auto">
         <div class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold text-blue-400">SmartHome OS</h1>
-            <div id="conn-badge" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-400 uppercase">Connecting...</div>
+            <h1 class="text-3xl font-bold text-blue-500">SmartHome OS</h1>
+            <div id="status" class="text-xs font-mono bg-slate-800 px-3 py-1 rounded">CONNECTING...</div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div class="glass p-6 rounded-2xl">
-                <h2 class="text-xl font-semibold mb-4 text-slate-300">Environment (Room Node)</h2>
-                <div class="flex justify-around items-center h-32">
-                    <div class="text-center">
-                        <p class="text-slate-400 text-sm uppercase">Temperature</p>
-                        <p class="text-4xl font-bold"><span id="temp">--</span>°C</p>
-                    </div>
-                    <div class="w-px h-16 bg-slate-700"></div>
-                    <div class="text-center">
-                        <p class="text-slate-400 text-sm uppercase">Humidity</p>
-                        <p class="text-4xl font-bold"><span id="hum">--</span>%</p>
-                    </div>
+                <h2 class="text-xl font-bold mb-4">🌀 Fan Control</h2>
+                <select onchange="sendMode('fan', this.value)" class="w-full bg-slate-900 border border-slate-700 p-2 rounded mb-4">
+                    <option value="AUTO">Automatic Mode</option>
+                    <option value="MANUAL">Manual Override</option>
+                </select>
+                <div id="fan-manual" class="hidden flex gap-2">
+                    <button onclick="sendPower('fan', 'ON')" class="flex-1 bg-blue-600 p-2 rounded font-bold">ON</button>
+                    <button onclick="sendPower('fan', 'OFF')" class="flex-1 bg-red-600 p-2 rounded font-bold">OFF</button>
                 </div>
             </div>
 
-            <div class="glass p-6 rounded-2xl flex flex-col justify-between">
-                <div>
-                    <h2 class="text-xl font-semibold mb-2 text-slate-300">Security (Door Node)</h2>
-                    <p class="text-sm text-slate-400 mb-4">Last Event: <span id="lock-status" class="text-blue-400 italic">Waiting...</span></p>
-                </div>
-                
-                <div class="flex flex-col items-center">
-                    <div id="lock-icon" class="w-20 h-20 rounded-full flex items-center justify-center bg-slate-800 mb-4 text-3xl transition-all duration-500">
-                        🔒
-                    </div>
-                    <button onclick="requestUnlock()" id="unlock-btn" class="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition-all active:scale-95">
-                        UNLOCK DOOR
-                    </button>
+            <div class="glass p-6 rounded-2xl">
+                <h2 class="text-xl font-bold mb-4">💡 Light Control</h2>
+                <select onchange="sendMode('led', this.value)" class="w-full bg-slate-900 border border-slate-700 p-2 rounded mb-4">
+                    <option value="AUTO">Automatic Mode</option>
+                    <option value="MANUAL">Manual Override</option>
+                </select>
+                <div id="led-manual" class="hidden flex gap-2">
+                    <button onclick="sendPower('led', 'ON')" class="flex-1 bg-yellow-600 p-2 rounded font-bold">ON</button>
+                    <button onclick="sendPower('led', 'OFF')" class="flex-1 bg-red-600 p-2 rounded font-bold">OFF</button>
                 </div>
             </div>
 
-            <div class="glass p-6 rounded-2xl md:col-span-2">
-                <h2 class="text-xl font-semibold mb-4 text-slate-300">Authentication Logs</h2>
-                <div class="overflow-hidden rounded-lg bg-slate-900/50">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-800 text-slate-400 uppercase text-xs">
-                            <tr>
-                                <th class="p-3">Source</th>
-                                <th class="p-3">UID / Status</th>
-                                <th class="p-3">Time</th>
-                            </tr>
-                        </thead>
-                        <tbody id="log-table">
-                            </tbody>
-                    </table>
-                </div>
+            <div class="glass p-6 rounded-2xl">
+                <h2 class="text-xl font-bold mb-4">🔒 Security</h2>
+                <div id="lock-state" class="text-center text-4xl mb-4">🔒</div>
+                <button onclick="publish('smartlock/command', 'UNLOCK')" class="w-full bg-indigo-600 p-3 rounded-xl font-bold">UNLOCK DOOR</button>
             </div>
-
         </div>
     </div>
 
     <script>
-        // CONFIGURATION (Change these to match your actual setup)
-        const CONFIG = {
-            MQTT_HOST: "wss://4a5c7617d0b449afb71fdbe930eda17c.s1.eu.hivemq.cloud:8884/mqtt",
-            MQTT_USER: "esp32user",
-            MQTT_PASS: "Diddyvyansh@07",
-            PIN: "1234", // Web unlock PIN
-            TOPICS: {
-                COMMAND: "smartlock/command",
-                STATUS: "smartlock/status",
-                SENSORS: "smarthome/room_sensors"
-            }
-        };
-
-        const client = mqtt.connect(CONFIG.MQTT_HOST, {
-            username: CONFIG.MQTT_USER,
-            password: CONFIG.MQTT_PASS,
-            clientId: 'WebDashboard_' + Math.random().toString(16).substr(2, 8)
+        const client = mqtt.connect('wss://4a5c7617d0b449afb71fdbe930eda17c.s1.eu.hivemq.cloud:8884/mqtt', {
+            username: 'esp32user', password: 'Diddyvyansh@07'
         });
-
-        const badge = document.getElementById('conn-badge');
 
         client.on('connect', () => {
-            badge.innerText = "Online";
-            badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-green-900 text-green-400 uppercase";
-            client.subscribe(CONFIG.TOPICS.STATUS);
-            client.subscribe(CONFIG.TOPICS.SENSORS);
+            document.getElementById('status').innerText = "ONLINE";
+            client.subscribe("smarthome/room_sensors");
+            client.subscribe("smartlock/status");
         });
 
-        client.on('message', (topic, message) => {
-            const data = JSON.parse(message.toString());
-
-            if (topic === CONFIG.TOPICS.SENSORS) {
-                document.getElementById('temp').innerText = data.temp.toFixed(1);
-                document.getElementById('hum').innerText = data.hum.toFixed(0);
-            }
-
-            if (topic === CONFIG.TOPICS.STATUS) {
-                updateSecurityUI(data);
-                addLogEntry(data);
-            }
-        });
-
-        function updateSecurityUI(data) {
-            const statusEl = document.getElementById('lock-status');
-            const iconEl = document.getElementById('lock-icon');
-            const btnEl = document.getElementById('unlock-btn');
-
-            statusEl.innerText = data.status || "Updated";
-            
-            if (data.locked) {
-                iconEl.innerText = "🔒";
-                iconEl.className = "w-20 h-20 rounded-full flex items-center justify-center bg-red-900/30 text-red-500 mb-4 text-3xl";
-                btnEl.innerText = "UNLOCK DOOR";
-                btnEl.className = "w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition-all";
-            } else {
-                iconEl.innerText = "🔓";
-                iconEl.className = "w-20 h-20 rounded-full flex items-center justify-center bg-green-900/30 text-green-500 mb-4 text-3xl animate-pulse";
-                btnEl.innerText = "DOOR UNLOCKED";
-                btnEl.className = "w-full bg-green-600 cursor-not-allowed py-3 rounded-xl font-bold";
-            }
+        function sendMode(device, mode) {
+            document.getElementById(`${device}-manual`).classList.toggle('hidden', mode === 'AUTO');
+            client.publish(`smarthome/${device}_mode`, mode);
         }
 
-        function addLogEntry(data) {
-            const table = document.getElementById('log-table');
-            const row = table.insertRow(0);
-            row.className = "border-b border-slate-800 text-slate-300";
-            row.innerHTML = `
-                <td class="p-3">${data.status}</td>
-                <td class="p-3 font-mono text-xs text-blue-400">${data.uid || '---'}</td>
-                <td class="p-3 text-slate-500">${new Date().toLocaleTimeString()}</td>
-            `;
-            if (table.rows.length > 5) table.deleteRow(5);
+        function sendPower(device, state) {
+            client.publish(`smarthome/${device}_power`, state);
         }
 
-        function requestUnlock() {
-            const userPin = prompt("Enter Security PIN:");
-            if (userPin === CONFIG.PIN) {
-                client.publish(CONFIG.TOPICS.COMMAND, "UNLOCK");
-            } else {
-                alert("Incorrect PIN!");
+        function publish(topic, msg) { client.publish(topic, msg); }
+
+        client.on('message', (topic, msg) => {
+            const data = JSON.parse(msg.toString());
+            if (topic === 'smartlock/status') {
+                document.getElementById('lock-state').innerText = data.locked ? "🔒" : "🔓";
             }
-        }
-
-        client.on('close', () => {
-            badge.innerText = "Disconnected";
-            badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-red-900 text-red-400 uppercase";
         });
     </script>
 </body>
